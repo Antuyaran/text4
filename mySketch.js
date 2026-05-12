@@ -3,7 +3,7 @@ const MAX_CUTS = 10;               // 自动切割最大次数
 const CUT_INTERVAL = 1000;         // 每 1 秒 (1000ms) 切割一次
 const LINE_COLOR = '#8ed2f2';      // 系统设定蓝色
 const TEXT_COLOR = '#b7a180';      // 阅读系统文本色
-const BG_COLOR = '#fffff';        // 阅读系统纯白背景
+const BG_COLOR = '#ffffff';        // 阅读系统纯白背景
 const FONT_SIZE = 19;
 const LINE_HEIGHT = 20;
 const PARAGRAPH_MARGIN = 25;       // 段落间距
@@ -20,9 +20,9 @@ function setup() {
 
     // 1. 获取 DOM 中的文本并按段落处理
     let pTags = document.querySelectorAll('#source-text p');
-    let sourceText = Array.from(pTags).map(p => p.innerText).join('\n\n'); // 用双换行符标记段落
+    let sourceText = Array.from(pTags).map(p => p.innerText).join('\n\n'); 
     
-    // 隐藏原始 DOM 文本的颜色，但保留其占用的空间，使得 #text-container 依然可以滚动
+    // 隐藏原始 DOM 文本的颜色
     document.getElementById('source-text').style.color = 'transparent';
 
     // 2. 监听文本容器的滚动事件，实现 Canvas 与 DOM 同步滚动
@@ -30,7 +30,7 @@ function setup() {
         scrollOffset = e.target.scrollTop;
     });
 
-    // 3. 初始多边形（为了支持滚动，多边形的高度设为屏幕的数倍，确保长文本不被截断）
+    // 3. 初始多边形
     polygons.push([
         { x: 0, y: 0 },
         { x: width, y: 0 },
@@ -53,7 +53,6 @@ function draw() {
 
     // --- 自动切割逻辑 ---
     if (millis() - lastCutTime > CUT_INTERVAL && cutLines.length < MAX_CUTS) {
-        // 随机生成一个切点和角度
         let pt = createVector(random(width * 0.1, width * 0.9), random(height * 0.1, height * 0.9));
         let angle = random(TWO_PI);
         executeCut(pt, angle);
@@ -61,21 +60,45 @@ function draw() {
     }
 
     push();
-    // 应用滚动偏移，使得 Canvas 上的文字随着底层 DOM 一起“滚动”
+    // 应用滚动偏移
     translate(0, -scrollOffset);
 
-    // 动态计算当前的 Responsive Padding，以精准对齐 CSS 中的 clamp() 函数
-    let padX = constrain(windowWidth * 0.05, 20, 60); // 近似 5vw, min 20, max 60
-    let padY = constrain(windowHeight * 0.06, 20, 60); // 近似 6vh, min 20, max 60
+    // 动态计算 Responsive Padding
+    let padX = constrain(windowWidth * 0.05, 20, 60); 
+    let padY = constrain(windowHeight * 0.06, 20, 60); 
     let maxTextWidth = 800;
     
-    // 计算左侧对齐线和右侧最大边界
     let leftBound = padX;
     let rightBound = min(width - padX, padX + maxTextWidth);
 
-    // 渲染碎片容器内的文本
-    for (let poly of polygons) {
-        renderTextInPoly(poly, leftBound, rightBound, padY);
+    // ==========================================
+    // 新增逻辑：对碎片容器进行排序，确保阅读顺序
+    // ==========================================
+    let sortedPolys = polygons.slice().sort((a, b) => {
+        let minY_a = Math.min(...a.map(p => p.y));
+        let minY_b = Math.min(...b.map(p => p.y));
+        let minX_a = Math.min(...a.map(p => p.x));
+        let minX_b = Math.min(...b.map(p => p.x));
+
+        // 如果两个碎片的顶部在几乎同一水平线上（误差两行文字内），则从左到右排
+        if (Math.abs(minY_a - minY_b) < LINE_HEIGHT * 2) {
+            return minX_a - minX_b;
+        }
+        // 否则严格从上到下排
+        return minY_a - minY_b;
+    });
+
+    // ==========================================
+    // 新增逻辑：全局进度接力
+    // ==========================================
+    let currentTokenIdx = 0; // 从头开始
+
+    for (let poly of sortedPolys) {
+        // 每次渲染完一个碎片后，将返回的进度传递给下一个碎片
+        currentTokenIdx = renderTextInPoly(poly, leftBound, rightBound, padY, currentTokenIdx);
+        
+        // 如果所有的文字都已经排版完了，就可以提前结束循环
+        if (currentTokenIdx >= textTokens.length) break; 
     }
 
     // 绘制 #8ed2f2 的蓝线
@@ -134,7 +157,6 @@ function intersect(p1, p2, lp, n) {
     return { x: p1.x + t * dx, y: p1.y + t * dy };
 }
 
-// 窗口尺寸自适应，重置切割
 function windowResized() {
     resizeCanvas(windowWidth, windowHeight);
     polygons = [[
@@ -145,8 +167,9 @@ function windowResized() {
     lastCutTime = millis();
 }
 
-// --- 在碎片中自适应排版 ---
-function renderTextInPoly(poly, leftBound, rightBound, topPadY) {
+// --- 在碎片中自适应接力排版 ---
+// 接收 startTokenIdx 并且返回排版完成后的最终 index
+function renderTextInPoly(poly, leftBound, rightBound, topPadY, startTokenIdx) {
     fill(TEXT_COLOR);
     noStroke();
     textSize(FONT_SIZE);
@@ -155,17 +178,15 @@ function renderTextInPoly(poly, leftBound, rightBound, topPadY) {
     let minY = Math.min(...poly.map(p => p.y));
     let maxY = Math.max(...poly.map(p => p.y));
     
-    // Y 轴起始点：确保遵循 CSS 的顶部 padding 限制
     let startY = max(minY, topPadY); 
-    let tokenIdx = 0;
+    let tokenIdx = startTokenIdx; // 接力当前的进度
 
     let y = startY + FONT_SIZE;
     
     while (y < maxY && tokenIdx < textTokens.length) {
         let xStarts = [];
-        let checkY = y - FONT_SIZE * 0.3; // 视界线高度修正
+        let checkY = y - FONT_SIZE * 0.3; 
         
-        // 寻找当前行与多边形的交点
         for (let i = 0; i < poly.length; i++) {
             let p1 = poly[i], p2 = poly[(i + 1) % poly.length];
             if ((p1.y <= checkY && p2.y > checkY) || (p2.y <= checkY && p1.y > checkY)) {
@@ -176,11 +197,10 @@ function renderTextInPoly(poly, leftBound, rightBound, topPadY) {
         if (xStarts.length >= 2) {
             xStarts.sort((a, b) => a - b);
             
-            // 将纯几何的容器边缘与你设定的 CSS 容器边界合并 (左对齐，右侧限宽)
-            let curX = max(xStarts[0] + 4, leftBound); // +4 作为切线边缘的一点呼吸感
+            let curX = max(xStarts[0] + 4, leftBound); 
             let maxX = min(xStarts[1] - 4, rightBound);
             
-            // 跳过行首空白
+            // 跳过行首可能存在的连续空格
             while (tokenIdx < textTokens.length && textTokens[tokenIdx].trim() === '' && textTokens[tokenIdx] !== '\n') {
                 tokenIdx++;
             }
@@ -188,25 +208,27 @@ function renderTextInPoly(poly, leftBound, rightBound, topPadY) {
             while (tokenIdx < textTokens.length) {
                 let token = textTokens[tokenIdx];
                 
-                // 处理段落换行逻辑
                 if (token === '\n') {
-                    y += (PARAGRAPH_MARGIN - LINE_HEIGHT); // 应用段落间距
+                    y += (PARAGRAPH_MARGIN - LINE_HEIGHT); 
                     tokenIdx++;
-                    break; // 强制进入下一行扫描
+                    break; 
                 }
 
                 let tw = textWidth(token);
                 
-                // 只要不超过当前碎片的右边界以及 CSS 容器的最大宽度，就继续绘制
+                // 空间充足，放入容器，进度推进一步
                 if (curX + tw <= maxX) {
                     text(token, curX, y);
                     curX += tw;
                     tokenIdx++;
                 } else {
-                    break; // 空间不足，自动回行
+                    break; // 此行空间不足，自动回行
                 }
             }
         }
         y += LINE_HEIGHT;
     }
+    
+    // 把装不下的文本进度返回，留给下一个多边形继续装
+    return tokenIdx; 
 }
