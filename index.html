@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text Fragmentation - Variation</title>
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.4.2/lib/p5.js"></script>
+    <style>
+        /* Base page structure */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #ffffff;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #middle-row {
+            flex: 1;
+            display: flex;
+            flex-direction: row;
+            overflow: hidden;
+            min-height: 0;
+        }
+
+        #text-container {
+            flex: 1;
+            min-width: 0;
+            overflow-y: auto;
+            display: flex;
+            justify-content: flex-start;
+            box-sizing: border-box;
+            /* Responsive padding */
+            padding: clamp(20px, 6vh, 60px) clamp(20px, 5vw, 60px);
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none; /* IE/Edge */
+        }
+
+        #text-container::-webkit-scrollbar {
+            display: none; /* Chrome/Safari/Webkit */
+        }
+
+        .text-content {
+            max-width: 800px;
+            width: 100%;
+            margin: 0;
+            
+            /* Text style DNA */
+            font-family: "PingFang SC Light", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+            font-weight: 300;
+            font-size: 19px;
+            line-height: 20px;
+            color: #b7a180;
+            text-align: left;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+
+        .text-content p {
+            margin-top: 0;
+            margin-bottom: 25px;
+        }
+
+        /* Canvas overlay for visual effects */
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none; /* Allow scrolling underneath */
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div id="middle-row">
+        <div id="text-container">
+            <div class="text-content" id="source-text">
+                <p>The Time Traveller (for so it will be convenient to speak of him) was expounding a recondite matter to us. His grey eyes shone and twinkled, and his usually pale face was flushed and animated. The fire burned brightly, and the soft radiance of the incandescent lights in the lilies of silver caught the bubbles that flashed and passed in our glasses.</p>
+
+                <p>Our chairs, being his patents, embraced and caressed us rather than submitted to be sat upon, and there was that luxurious after-dinner atmosphere when thought roams gracefully free of the trammels of precision. And he put it to us in this way—marking the points with a lean forefinger—as we sat and lazily admired his earnestness over this new paradox.</p>
+
+                <p>“You must follow me carefully. I shall have to controvert one or two ideas that are almost universally accepted. The geometry, for instance, they taught you at school is founded on a misconception.”</p>
+
+                <p>“Is not that rather a large thing to expect us to begin upon?” said Filby, an argumentative person with red hair. “I do not mean to ask you to accept anything without reasonable ground for it. You will soon admit as much as I need from you.”</p>
+
+                <p>“You know of course that a mathematical line, a line of thickness nil, has no real existence. They taught you that? Neither has a mathematical plane. These things are mere abstractions. But what about a cube? Can a cube that does not last for any time at all, have a real existence?”</p>
+                
+                <p>Filby became pensive. “Clearly,” the Time Traveller proceeded, “any real body must have extension in four directions: it must have Length, Breadth, Thickness, and—Duration. But through a natural infirmity of the flesh, which I will explain to you in a moment, we incline to overlook this fact.”</p>
+
+                <p>“There are really four dimensions, three which we call the three planes of Space, and a fourth, Time. There is, however, a tendency to draw an unreal distinction between the former three dimensions and the latter, because it happens that our consciousness moves intermittently in one direction along the latter from the beginning to the end of our lives.”</p></div>
+        </div>
+    </div>
+    
+    <div id="canvas-container"></div>
+    <script src="mySketch.js"></script>
+</body>
+</html>
