@@ -1,18 +1,18 @@
 // --- 配置参数 ---
-const MAX_CUTS = 10;               // 自动切割最大次数
-const CUT_INTERVAL = 1000;         // 每 1 秒 (1000ms) 切割一次
+const MAX_CUTS = 15;               // 自动切割最大次数
 const LINE_COLOR = '#8ed2f2';      // 系统设定蓝色
 const TEXT_COLOR = '#b7a180';      // 阅读系统文本色
 const BG_COLOR = '#ffffff';        // 阅读系统纯白背景
 const FONT_SIZE = 19;
 const LINE_HEIGHT = 20;
 const PARAGRAPH_MARGIN = 25;       // 段落间距
+const SCROLL_COOLDOWN = 600;       // 滚动防抖冷却时间(毫秒)，把一次连续的滑动视为一次“交互”
 
 let polygons = [];
 let cutLines = [];
 let textTokens = [];
-let lastCutTime = 0;
 let scrollOffset = 0;
+let lastScrollTime = 0;            // 记录上一次因滚动触发切割的时间
 
 function setup() {
     let canvas = createCanvas(windowWidth, windowHeight);
@@ -25,9 +25,26 @@ function setup() {
     // 隐藏原始 DOM 文本的颜色
     document.getElementById('source-text').style.color = 'transparent';
 
-    // 2. 监听文本容器的滚动事件，实现 Canvas 与 DOM 同步滚动
+    // 2. 监听文本容器的滚动事件 (鼠标滚轮或触摸滑动)
     document.getElementById('text-container').addEventListener('scroll', function(e) {
         scrollOffset = e.target.scrollTop;
+
+        // 【新增逻辑】交互触发切割
+        // 如果切割次数未达上限，且距离上一次交互超过了冷却时间
+        if (cutLines.length < MAX_CUTS && millis() - lastScrollTime > SCROLL_COOLDOWN) {
+            
+            // 每次交互随机生成 1 到 2 根切割线
+            let cutsThisTime = floor(random(1, 3)); 
+            
+            for (let i = 0; i < cutsThisTime; i++) {
+                if (cutLines.length < MAX_CUTS) {
+                    let pt = createVector(random(width * 0.1, width * 0.9), random(height * 0.1, height * 0.9));
+                    let angle = random(TWO_PI);
+                    executeCut(pt, angle);
+                }
+            }
+            lastScrollTime = millis(); // 重置冷却计时
+        }
     });
 
     // 3. 初始多边形
@@ -38,26 +55,18 @@ function setup() {
         { x: 0, y: height * 3 }
     ]);
 
-    // 4. 分词（保留换行符用于段落判断）
+    // 4. 分词
     textTokens = sourceText.match(/\n|[\w.,!?'"()-]+|\s+|[\u4e00-\u9fa5]|[^\w\s]/g) || [];
 
     // 设置字体 DNA
     textFont('"PingFang SC Light", "PingFang SC", "Helvetica Neue", Arial, sans-serif');
-    
-    lastCutTime = millis();
 }
 
 function draw() {
     clear(); 
     background(BG_COLOR);
 
-    // --- 自动切割逻辑 ---
-    if (millis() - lastCutTime > CUT_INTERVAL && cutLines.length < MAX_CUTS) {
-        let pt = createVector(random(width * 0.1, width * 0.9), random(height * 0.1, height * 0.9));
-        let angle = random(TWO_PI);
-        executeCut(pt, angle);
-        lastCutTime = millis();
-    }
+    // 【修改逻辑】去掉了之前基于 time 的自动切割，现在全部由 scroll 事件驱动
 
     push();
     // 应用滚动偏移
@@ -71,16 +80,14 @@ function draw() {
     let leftBound = padX;
     let rightBound = min(width - padX, padX + maxTextWidth);
 
-    // ==========================================
-    // 新增逻辑：对碎片容器进行排序，确保阅读顺序
-    // ==========================================
+    // 对碎片容器进行排序，确保阅读顺序
     let sortedPolys = polygons.slice().sort((a, b) => {
         let minY_a = Math.min(...a.map(p => p.y));
         let minY_b = Math.min(...b.map(p => p.y));
         let minX_a = Math.min(...a.map(p => p.x));
         let minX_b = Math.min(...b.map(p => p.x));
 
-        // 如果两个碎片的顶部在几乎同一水平线上（误差两行文字内），则从左到右排
+        // 如果两个碎片的顶部在几乎同一水平线上，则从左到右排
         if (Math.abs(minY_a - minY_b) < LINE_HEIGHT * 2) {
             return minX_a - minX_b;
         }
@@ -88,16 +95,11 @@ function draw() {
         return minY_a - minY_b;
     });
 
-    // ==========================================
-    // 新增逻辑：全局进度接力
-    // ==========================================
-    let currentTokenIdx = 0; // 从头开始
+    // 全局进度接力排版
+    let currentTokenIdx = 0; 
 
     for (let poly of sortedPolys) {
-        // 每次渲染完一个碎片后，将返回的进度传递给下一个碎片
         currentTokenIdx = renderTextInPoly(poly, leftBound, rightBound, padY, currentTokenIdx);
-        
-        // 如果所有的文字都已经排版完了，就可以提前结束循环
         if (currentTokenIdx >= textTokens.length) break; 
     }
 
@@ -164,11 +166,9 @@ function windowResized() {
         { x: width, y: height * 3 }, { x: 0, y: height * 3 }
     ]];
     cutLines = [];
-    lastCutTime = millis();
 }
 
 // --- 在碎片中自适应接力排版 ---
-// 接收 startTokenIdx 并且返回排版完成后的最终 index
 function renderTextInPoly(poly, leftBound, rightBound, topPadY, startTokenIdx) {
     fill(TEXT_COLOR);
     noStroke();
@@ -179,7 +179,7 @@ function renderTextInPoly(poly, leftBound, rightBound, topPadY, startTokenIdx) {
     let maxY = Math.max(...poly.map(p => p.y));
     
     let startY = max(minY, topPadY); 
-    let tokenIdx = startTokenIdx; // 接力当前的进度
+    let tokenIdx = startTokenIdx; 
 
     let y = startY + FONT_SIZE;
     
@@ -200,7 +200,6 @@ function renderTextInPoly(poly, leftBound, rightBound, topPadY, startTokenIdx) {
             let curX = max(xStarts[0] + 4, leftBound); 
             let maxX = min(xStarts[1] - 4, rightBound);
             
-            // 跳过行首可能存在的连续空格
             while (tokenIdx < textTokens.length && textTokens[tokenIdx].trim() === '' && textTokens[tokenIdx] !== '\n') {
                 tokenIdx++;
             }
@@ -216,19 +215,17 @@ function renderTextInPoly(poly, leftBound, rightBound, topPadY, startTokenIdx) {
 
                 let tw = textWidth(token);
                 
-                // 空间充足，放入容器，进度推进一步
                 if (curX + tw <= maxX) {
                     text(token, curX, y);
                     curX += tw;
                     tokenIdx++;
                 } else {
-                    break; // 此行空间不足，自动回行
+                    break; 
                 }
             }
         }
         y += LINE_HEIGHT;
     }
     
-    // 把装不下的文本进度返回，留给下一个多边形继续装
     return tokenIdx; 
 }
